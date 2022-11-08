@@ -1,115 +1,92 @@
-# CNB Metadata integer bug
+# CNB dash-e bug
+
+Args with `-e` are somehow eaten from default process types. In this case, we create a simple bash script that echos the args that are passed to it:
+
+```bash
+#!/usr/bin/env bash
+
+echo "Printing args"
+printf '%s\n' "$*"
+```
+
+Here's the default process with args:
+
+```
+$ pack inspect sample | grep Processes -A 5
+Processes:
+  TYPE                        SHELL        COMMAND                                              ARGS                                 WORK DIR
+  print-args (default)        bash         /layers/sample-counter/sys-info/print-args.sh        before-dash-e -e after-dash-e        /workspace
+```
+
+When we run this, you would expect to see `-e` in the output, but it is not present:
 
 ## Expected
 
-If you run this buildpack twice you should see this output on the second run:
-
 ```
-Existing layer TOML contents:
-[metadata]
-  version = 1
+$ docker run -it --rm sample
+Printing args
+before-dash-e -e after-dash-e
 ```
 
 ## Actual
 
-It currently instead outputs this:
-
 ```
-Existing layer TOML contents:
-[metadata]
-  version = 1.0
+$ docker run -it --rm sample
+Printing args
+before-dash-e after-dash-e
 ```
 
-Note that this is a float instead of an integer
+Note that the `-e` is missing
 
 ## Reproduce
 
 Clone the code:
 
 ```
-git clone https://github.com/schneems/cnb-metadata-integer-bug
-cd cnb-metadata-integer-bug
+git clone https://github.com/schneems/cnb-dash-e-bug
+cd cnb-dash-e-bug
 ```
 
-Build once to write metadta:
+Build the app:
 
 ```
 $ pack build sample --buildpack ./ --path ./
-20: Pulling from heroku/buildpacks
-Digest: sha256:c49ebf7c333d099ee765a1841acea6d5e5aa0a81a3375e96d7af41c4abc53344
-Status: Image is up to date for heroku/buildpacks:20
-20-cnb: Pulling from heroku/heroku
-Digest: sha256:cb6e1902c1bd7c10e0e0d81d1a6c67a070e7820326b3cd22b11d0847b155ca5a
-Status: Image is up to date for heroku/heroku:20-cnb
-Previous image with name "sample" not found
+22: Pulling from heroku/builder
+Digest: sha256:e7916849c5cddcad0877666e672ddd37bcfdaf5064dba6967032b780291e66f5
+Status: Image is up to date for heroku/builder:22
+22-cnb: Pulling from heroku/heroku
+Digest: sha256:48752e45ae12ea577f519b734a9578c7d0dab08359edc2c252253bb67a1c6564
+Status: Image is up to date for heroku/heroku:22-cnb
+Restoring data for SBOM from previous image
 ===> DETECTING
 sample-counter 0.1.0
 ===> RESTORING
+Restoring metadata for "sample-counter:sys-info" from app image
 ===> BUILDING
+---> Hello processes buildpack
+---> Adding sys-info process
+---> Done
 ===> EXPORTING
-Adding layer 'sample-counter:test'
+Reusing layer 'sample-counter:sys-info'
+Reusing layer 'launch.sbom'
 Adding 1/1 app layer(s)
-Adding layer 'launcher'
-Adding layer 'config'
-Adding label 'io.buildpacks.lifecycle.metadata'
-Adding label 'io.buildpacks.build.metadata'
-Adding label 'io.buildpacks.project.metadata'
-no default process type
-Saving sample...
-*** Images (12e0340bd3e0):
-      sample
-Adding cache layer 'sample-counter:test'
-Successfully built image sample
-```
-
-Build it a gain to see what is in the prior metadat:
-
-
-```
-$ pack build sample --buildpack ./ --path ./
-20: Pulling from heroku/buildpacks
-Digest: sha256:c49ebf7c333d099ee765a1841acea6d5e5aa0a81a3375e96d7af41c4abc53344
-Status: Image is up to date for heroku/buildpacks:20
-20-cnb: Pulling from heroku/heroku
-Digest: sha256:cb6e1902c1bd7c10e0e0d81d1a6c67a070e7820326b3cd22b11d0847b155ca5a
-Status: Image is up to date for heroku/heroku:20-cnb
-===> DETECTING
-sample-counter 0.1.0
-===> RESTORING
-Restoring metadata for "sample-counter:test" from app image
-Restoring data for "sample-counter:test" from cache
-===> BUILDING
-Existing layer TOML contents:
-[metadata]
-  version = 1.0
-===> EXPORTING
-Reusing layer 'sample-counter:test'
-Reusing 1/1 app layer(s)
 Reusing layer 'launcher'
 Reusing layer 'config'
+Reusing layer 'process-types'
 Adding label 'io.buildpacks.lifecycle.metadata'
 Adding label 'io.buildpacks.build.metadata'
 Adding label 'io.buildpacks.project.metadata'
-no default process type
+Setting default process type 'print-args'
 Saving sample...
-*** Images (12e0340bd3e0):
+*** Images (6992ee87a261):
       sample
-Reusing cache layer 'sample-counter:test'
 Successfully built image sample
 ```
 
-Note the lines:
+Execute the default process:
 
 ```
-Existing layer TOML contents:
-[metadata]
-  version = 1.0
+$ docker run -it --rm sample
+Printing args
+before-dash-e  after-dash-e
 ```
-
-You can see in `bin/build` we are writing an integer, but reading a float.
-
-## Problem with strongly typed languages
-
-For dynamic languages there might be little differnce between `1` and `1.0` but in projects like Rust with [libcnb.rs](https://github.com/heroku/libcnb.rs/issues/473) it causes bigger problems as deserializing a float and an integer are two distinctly different things so the deserialization library believes the type signature has changed and it will throw out the old cache contents.
-
-While this was originally discovered while working with buildpacks written in Rust with libcnb.rs we reproduced the issue using bash to get a minimum possible reproduction.
