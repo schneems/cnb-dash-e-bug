@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+echo "---> Hello processes buildpack"
+
+# INPUT ARGUMENTS
+env_dir=$2/env
+layers_dir=$1
+plan_path=$3
+
+echo "---> Adding sys-info process"
+print_layer_dir="${layers_dir}/sys-info"
+mkdir -p ${print_layer_dir}
+
+cat > "${print_layer_dir}.toml" << EOF
+[types]
+launch = true
+EOF
+
+print_script="${print_layer_dir}/print-args.sh"
+cat > ${print_script} <<'EOL'
+#!/usr/bin/env bash
+
+echo "Printing args"
+printf '%s\n' "$*"
+EOL
+
+chmod +x ${print_script}
+
+cat >> "${layers_dir}/launch.toml" <<EOL
+[[processes]]
+type = "print-args"
+command = "${print_script}"
+args = ["before-dash-e", "-e", "after-dash-e"]
+direct = false
+default = true
+EOL
+
+echo "---> Done"
